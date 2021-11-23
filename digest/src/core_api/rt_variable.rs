@@ -1,8 +1,11 @@
 use super::{AlgorithmName, UpdateCore, VariableOutputCore};
+use crate::HashMarker;
+#[cfg(feature = "mac")]
+use crate::MacMarker;
 use crate::{InvalidOutputSize, Reset, Update, VariableOutput};
+use block_buffer::BlockBuffer;
 use core::fmt;
-use crypto_common::block_buffer::DigestBuffer;
-use generic_array::typenum::Unsigned;
+use generic_array::typenum::{IsLess, Le, NonZero, Unsigned, U256};
 
 /// Wrapper around [`VariableOutputCore`] which selects output size
 /// at run time.
@@ -10,15 +13,37 @@ use generic_array::typenum::Unsigned;
 pub struct RtVariableCoreWrapper<T>
 where
     T: VariableOutputCore + UpdateCore,
+    T::BlockSize: IsLess<U256>,
+    Le<T::BlockSize, U256>: NonZero,
 {
     core: T,
-    buffer: T::Buffer,
+    buffer: BlockBuffer<T::BlockSize, T::BufferKind>,
     output_size: usize,
+}
+
+impl<T> HashMarker for RtVariableCoreWrapper<T>
+where
+    T: VariableOutputCore + HashMarker,
+    T::BlockSize: IsLess<U256>,
+    Le<T::BlockSize, U256>: NonZero,
+{
+}
+
+#[cfg(feature = "mac")]
+#[cfg_attr(docsrs, doc(cfg(feature = "mac")))]
+impl<T> MacMarker for RtVariableCoreWrapper<T>
+where
+    T: VariableOutputCore + MacMarker,
+    T::BlockSize: IsLess<U256>,
+    Le<T::BlockSize, U256>: NonZero,
+{
 }
 
 impl<T> Reset for RtVariableCoreWrapper<T>
 where
     T: VariableOutputCore + UpdateCore,
+    T::BlockSize: IsLess<U256>,
+    Le<T::BlockSize, U256>: NonZero,
 {
     #[inline]
     fn reset(&mut self) {
@@ -36,6 +61,8 @@ where
 impl<T> Update for RtVariableCoreWrapper<T>
 where
     T: VariableOutputCore + UpdateCore,
+    T::BlockSize: IsLess<U256>,
+    Le<T::BlockSize, U256>: NonZero,
 {
     #[inline]
     fn update(&mut self, input: &[u8]) {
@@ -47,6 +74,8 @@ where
 impl<T> VariableOutput for RtVariableCoreWrapper<T>
 where
     T: VariableOutputCore + UpdateCore,
+    T::BlockSize: IsLess<U256>,
+    Le<T::BlockSize, U256>: NonZero,
 {
     const MAX_OUTPUT_SIZE: usize = T::MaxOutputSize::USIZE;
 
@@ -86,6 +115,8 @@ where
 impl<T> fmt::Debug for RtVariableCoreWrapper<T>
 where
     T: VariableOutputCore + UpdateCore + AlgorithmName,
+    T::BlockSize: IsLess<U256>,
+    Le<T::BlockSize, U256>: NonZero,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         T::write_alg_name(f)?;
@@ -98,6 +129,8 @@ where
 impl<T> std::io::Write for RtVariableCoreWrapper<T>
 where
     T: VariableOutputCore + UpdateCore,
+    T::BlockSize: IsLess<U256>,
+    Le<T::BlockSize, U256>: NonZero,
 {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
