@@ -63,17 +63,3 @@ where
     }
     None
 }
-
-/// Compute digest of one million `a` bytes
-pub fn one_million_a<D>(expected: &[u8])
-where
-    D: Digest + Debug + Clone,
-{
-    let mut sh = D::new();
-    for _ in 0..50_000 {
-        sh.update(&[b'a'; 10]);
-    }
-    sh.update(&[b'a'; 500_000][..]);
-    let out = sh.finalize();
-    assert_eq!(out[..], expected[..]);
-}
