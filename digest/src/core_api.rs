@@ -82,17 +82,12 @@ where
 
     /// Initialize hasher state for given output size.
     ///
-    /// Returns [`InvalidOutputSize`] if `output_size` is equal to zero or
-    /// bigger than `Self::MaxOutputSize`.
+    /// Returns [`InvalidOutputSize`] if `output_size` is not valid for
+    /// the algorithm.
     fn new(output_size: usize) -> Result<Self, InvalidOutputSize>;
 
-    /// Finalize hasher and return result of lenght `output_size` via closure `f`.
+    /// Finalize hasher and write hashing result into the `out` buffer.
     ///
-    /// `output_size` must be equal to `output_size` used during construction.
-    fn finalize_variable_core(
-        &mut self,
-        buffer: &mut Buffer<Self>,
-        output_size: usize,
-        f: impl FnOnce(&[u8]),
-    );
+    /// `out` length must be equal to `output_size` used during construction.
+    fn finalize_variable_core(&mut self, buffer: &mut Buffer<Self>, out: &mut [u8]);
 }

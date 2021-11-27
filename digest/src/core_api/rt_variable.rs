@@ -2,7 +2,7 @@ use super::{AlgorithmName, UpdateCore, VariableOutputCore};
 use crate::HashMarker;
 #[cfg(feature = "mac")]
 use crate::MacMarker;
-use crate::{InvalidOutputSize, Reset, Update, VariableOutput};
+use crate::{InvalidOutputSize, Reset, Update, VariableOutput, VariableOutputReset};
 use block_buffer::BlockBuffer;
 use core::fmt;
 use generic_array::typenum::{IsLess, Le, NonZero, Unsigned, U256};
@@ -41,20 +41,14 @@ where
 
 impl<T> Reset for RtVariableCoreWrapper<T>
 where
-    T: VariableOutputCore + UpdateCore,
+    T: VariableOutputCore + UpdateCore + Reset,
     T::BlockSize: IsLess<U256>,
     Le<T::BlockSize, U256>: NonZero,
 {
     #[inline]
     fn reset(&mut self) {
-        // For correct implementations `new` should always return `Ok`
-        // since wrapper can be only created with valid `output_size`
-        if let Ok(v) = T::new(self.output_size) {
-            self.core = v;
-        } else {
-            debug_assert!(false);
-        }
         self.buffer.reset();
+        self.core.reset();
     }
 }
 
@@ -92,23 +86,39 @@ where
         self.output_size
     }
 
-    fn finalize_variable(mut self, f: impl FnOnce(&[u8])) {
+    fn finalize_variable(mut self, out: &mut [u8]) -> Result<(), InvalidOutputSize> {
         let Self {
             core,
             buffer,
             output_size,
         } = &mut self;
-        core.finalize_variable_core(buffer, *output_size, f);
+        if out.len() != *output_size {
+            return Err(InvalidOutputSize);
+        }
+        core.finalize_variable_core(buffer, out);
+        Ok(())
     }
+}
 
-    fn finalize_variable_reset(&mut self, f: impl FnOnce(&[u8])) {
+impl<T> VariableOutputReset for RtVariableCoreWrapper<T>
+where
+    T: VariableOutputCore + UpdateCore + Reset,
+    T::BlockSize: IsLess<U256>,
+    Le<T::BlockSize, U256>: NonZero,
+{
+    fn finalize_variable_reset(&mut self, out: &mut [u8]) -> Result<(), InvalidOutputSize> {
         let Self {
             core,
             buffer,
             output_size,
         } = self;
-        core.finalize_variable_core(buffer, *output_size, f);
-        self.reset()
+        if out.len() != *output_size {
+            return Err(InvalidOutputSize);
+        }
+        core.finalize_variable_core(buffer, out);
+        core.reset();
+        buffer.reset();
+        Ok(())
     }
 }
 

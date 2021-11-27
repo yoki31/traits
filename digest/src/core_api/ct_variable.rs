@@ -108,8 +108,7 @@ where
         buffer: &mut Buffer<Self>,
         out: &mut GenericArray<u8, Self::OutputSize>,
     ) {
-        self.inner
-            .finalize_variable_core(buffer, out.len(), |r| out.copy_from_slice(r));
+        self.inner.finalize_variable_core(buffer, out);
     }
 }
 

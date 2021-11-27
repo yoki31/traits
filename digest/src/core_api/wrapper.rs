@@ -2,7 +2,9 @@ use super::{
     AlgorithmName, Buffer, BufferKindUser, ExtendableOutputCore, FixedOutputCore, OutputSizeUser,
     Reset, UpdateCore, XofReaderCoreWrapper,
 };
-use crate::{ExtendableOutput, FixedOutput, FixedOutputReset, HashMarker, Update};
+use crate::{
+    ExtendableOutput, ExtendableOutputReset, FixedOutput, FixedOutputReset, HashMarker, Update,
+};
 use block_buffer::BlockBuffer;
 use core::fmt;
 use crypto_common::{BlockSizeUser, InvalidLength, Key, KeyInit, KeySizeUser, Output};
@@ -184,7 +186,7 @@ where
 
 impl<T> ExtendableOutput for CoreWrapper<T>
 where
-    T: ExtendableOutputCore + Reset,
+    T: ExtendableOutputCore,
     T::BlockSize: IsLess<U256>,
     Le<T::BlockSize, U256>: NonZero,
     <T::ReaderCore as BlockSizeUser>::BlockSize: IsLess<U256>,
@@ -199,7 +201,16 @@ where
         let buffer = Default::default();
         Self::Reader { core, buffer }
     }
+}
 
+impl<T> ExtendableOutputReset for CoreWrapper<T>
+where
+    T: ExtendableOutputCore + Reset,
+    T::BlockSize: IsLess<U256>,
+    Le<T::BlockSize, U256>: NonZero,
+    <T::ReaderCore as BlockSizeUser>::BlockSize: IsLess<U256>,
+    Le<<T::ReaderCore as BlockSizeUser>::BlockSize, U256>: NonZero,
+{
     #[inline]
     fn finalize_xof_reset(&mut self) -> Self::Reader {
         let Self { core, buffer } = self;
