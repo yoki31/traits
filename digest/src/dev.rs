@@ -41,30 +41,23 @@ macro_rules! new_test {
 /// Define benchmark
 #[macro_export]
 #[cfg_attr(docsrs, doc(cfg(feature = "dev")))]
-macro_rules! bench {
-    ($name:ident, $engine:path, $bs:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
-            let mut d = <$engine>::default();
-            let data = [0; $bs];
+macro_rules! bench_update {
+    (
+        $init:expr;
+        $($name:ident $bs:expr;)*
+    ) => {
+        $(
+            #[bench]
+            fn $name(b: &mut Bencher) {
+                let mut d = $init;
+                let data = [0; $bs];
 
-            b.iter(|| {
-                d.update(&data[..]);
-            });
+                b.iter(|| {
+                    digest::Update::update(&mut d, &data[..]);
+                });
 
-            b.bytes = $bs;
-        }
-    };
-
-    ($engine:path) => {
-        extern crate test;
-
-        use digest::Digest;
-        use test::Bencher;
-
-        $crate::bench!(bench1_10, $engine, 10);
-        $crate::bench!(bench2_100, $engine, 100);
-        $crate::bench!(bench3_1000, $engine, 1000);
-        $crate::bench!(bench4_10000, $engine, 10000);
+                b.bytes = $bs;
+            }
+        )*
     };
 }
