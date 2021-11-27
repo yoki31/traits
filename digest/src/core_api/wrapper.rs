@@ -214,9 +214,14 @@ where
     #[inline]
     fn finalize_xof_reset(&mut self) -> Self::Reader {
         let Self { core, buffer } = self;
-        let core = core.finalize_xof_core(buffer);
+        let reader_core = core.finalize_xof_core(buffer);
+        core.reset();
+        buffer.reset();
         let buffer = Default::default();
-        Self::Reader { core, buffer }
+        Self::Reader {
+            core: reader_core,
+            buffer,
+        }
     }
 }
 
