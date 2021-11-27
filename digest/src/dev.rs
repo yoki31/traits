@@ -4,9 +4,9 @@ pub use blobby;
 
 mod fixed;
 mod mac;
+mod rng;
 mod variable;
 mod xof;
-mod rng;
 
 pub use fixed::*;
 pub use mac::*;
@@ -64,10 +64,11 @@ macro_rules! bench_update {
 }
 
 /// Feed ~1 MiB of pseudorandom data to an updatable state.
-pub fn feed_rand_1mib<D: crate::Update>(d: &mut D) {
+pub fn feed_rand_16mib<D: crate::Update>(d: &mut D) {
     let buf = &mut [0u8; 1024];
     let mut rng = rng::RNG;
-    for _ in 0..(1<<20) {
+    let n = 16 * (1 << 20) / buf.len();
+    for _ in 0..n {
         rng.fill(buf);
         d.update(buf);
         // additional byte, so size of feeded data
