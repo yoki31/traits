@@ -54,7 +54,7 @@ macro_rules! bench_update {
                 let data = [0; $bs];
 
                 b.iter(|| {
-                    crate::Update::update(&mut d, &data[..]);
+                    digest::Update::update(&mut d, &data[..]);
                 });
 
                 b.bytes = $bs;
@@ -64,7 +64,7 @@ macro_rules! bench_update {
 }
 
 /// Feed ~1 MiB of pseudorandom data to an updatable state.
-pub fn feed_rand_16mib<D: crate::Update>(d: &mut D) {
+pub fn feed_rand_16mib<D: digest::Update>(d: &mut D) {
     let buf = &mut [0u8; 1024];
     let mut rng = rng::RNG;
     let n = 16 * (1 << 20) / buf.len();
