@@ -1,12 +1,16 @@
 [workspace]
+resolver = "2"
 members = [
     "aead",
     "cipher",
+    "crypto",
     "crypto-common",
-    "crypto-mac",
     "digest",
-    "password-hash",
+    "kem",
     "signature",
     "signature/async",
     "universal-hash",
+]
+exclude = [
+    "elliptic-curve" # re-add when all crates are MSRV 1.60+
 ]

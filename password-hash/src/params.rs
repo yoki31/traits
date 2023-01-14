@@ -6,7 +6,6 @@ use crate::{
     Encoding, Error, Ident, Result,
 };
 use core::{
-    convert::{TryFrom, TryInto},
     fmt::{self, Debug, Write},
     iter::FromIterator,
     str::{self, FromStr},
@@ -262,8 +261,15 @@ impl<'a> Iterator for Iter<'a> {
 
     fn next(&mut self) -> Option<Pair<'a>> {
         let mut param = self.inner.as_mut()?.next()?.split(PAIR_DELIMITER);
-        let name = Ident::new(param.next().expect(INVARIANT_VIOLATED_MSG));
-        let value = Value::try_from(param.next().expect(INVARIANT_VIOLATED_MSG))
+
+        let name = param
+            .next()
+            .and_then(|id| Ident::try_from(id).ok())
+            .expect(INVARIANT_VIOLATED_MSG);
+
+        let value = param
+            .next()
+            .and_then(|value| Value::try_from(value).ok())
             .expect(INVARIANT_VIOLATED_MSG);
 
         debug_assert_eq!(param.next(), None);
@@ -325,7 +331,7 @@ mod tests {
 
     #[cfg(feature = "alloc")]
     use alloc::string::ToString;
-    use core::{convert::TryFrom, str::FromStr};
+    use core::str::FromStr;
 
     #[test]
     fn add() {
@@ -352,7 +358,7 @@ mod tests {
 
     #[test]
     fn duplicate_names() {
-        let name = Ident::new("a");
+        let name = Ident::new("a").unwrap();
         let mut params = ParamsString::new();
         params.add_decimal(name, 1).unwrap();
 
@@ -364,9 +370,9 @@ mod tests {
     fn from_iter() {
         let params = ParamsString::from_iter(
             [
-                (Ident::new("a"), Value::try_from("1").unwrap()),
-                (Ident::new("b"), Value::try_from("2").unwrap()),
-                (Ident::new("c"), Value::try_from("3").unwrap()),
+                (Ident::new("a").unwrap(), Value::try_from("1").unwrap()),
+                (Ident::new("b").unwrap(), Value::try_from("2").unwrap()),
+                (Ident::new("c").unwrap(), Value::try_from("3").unwrap()),
             ]
             .iter()
             .cloned(),
@@ -388,7 +394,7 @@ mod tests {
         let mut i = params.iter();
 
         for (name, value) in &[("a", "1"), ("b", "2"), ("c", "3")] {
-            let name = Ident::new(name);
+            let name = Ident::new(name).unwrap();
             let value = Value::try_from(*value).unwrap();
             assert_eq!(i.next(), Some((name, value)));
         }

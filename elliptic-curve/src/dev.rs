@@ -6,25 +6,24 @@
 use crate::{
     bigint::{Limb, U256},
     error::{Error, Result},
-    ops::Reduce,
+    ops::{LinearCombination, Reduce},
     pkcs8,
     rand_core::RngCore,
-    sec1::{FromEncodedPoint, ToEncodedPoint},
+    sec1::{CompressedPoint, FromEncodedPoint, ToEncodedPoint},
     subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption},
     zeroize::DefaultIsZeroes,
-    AffineArithmetic, AffineXCoordinate, AlgorithmParameters, Curve, IsHigh, PrimeCurve,
-    ProjectiveArithmetic, ScalarArithmetic,
+    AffineXCoordinate, Curve, CurveArithmetic, IsHigh, PrimeCurve,
 };
 use core::{
-    iter::Sum,
+    iter::{Product, Sum},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 use ff::{Field, PrimeField};
-use generic_array::arr;
 use hex_literal::hex;
+use pkcs8::AssociatedOid;
 
 #[cfg(feature = "bits")]
-use crate::group::ff::PrimeFieldBits;
+use ff::PrimeFieldBits;
 
 #[cfg(feature = "jwk")]
 use crate::JwkParameters;
@@ -65,7 +64,7 @@ pub type ScalarBits = crate::ScalarBits<MockCurve>;
 pub struct MockCurve;
 
 impl Curve for MockCurve {
-    type UInt = U256;
+    type Uint = U256;
 
     const ORDER: U256 =
         U256::from_be_hex("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
@@ -73,25 +72,18 @@ impl Curve for MockCurve {
 
 impl PrimeCurve for MockCurve {}
 
-impl AffineArithmetic for MockCurve {
+impl CurveArithmetic for MockCurve {
     type AffinePoint = AffinePoint;
-}
-
-impl ProjectiveArithmetic for MockCurve {
     type ProjectivePoint = ProjectivePoint;
-}
-
-impl ScalarArithmetic for MockCurve {
     type Scalar = Scalar;
 }
 
-impl AlgorithmParameters for MockCurve {
+impl AssociatedOid for MockCurve {
     /// OID for NIST P-256
-    const OID: pkcs8::ObjectIdentifier = pkcs8::ObjectIdentifier::new("1.2.840.10045.3.1.7");
+    const OID: pkcs8::ObjectIdentifier = pkcs8::ObjectIdentifier::new_unwrap("1.2.840.10045.3.1.7");
 }
 
 #[cfg(feature = "jwk")]
-#[cfg_attr(docsrs, doc(cfg(feature = "jwk")))]
 impl JwkParameters for MockCurve {
     const CRV: &'static str = "P-256";
 }
@@ -101,6 +93,9 @@ impl JwkParameters for MockCurve {
 pub struct Scalar(ScalarCore);
 
 impl Field for Scalar {
+    const ZERO: Self = Self(ScalarCore::ZERO);
+    const ONE: Self = Self(ScalarCore::ONE);
+
     fn random(mut rng: impl RngCore) -> Self {
         let mut bytes = FieldBytes::default();
 
@@ -110,14 +105,6 @@ impl Field for Scalar {
                 return scalar;
             }
         }
-    }
-
-    fn zero() -> Self {
-        Self(ScalarCore::ZERO)
-    }
-
-    fn one() -> Self {
-        Self(ScalarCore::ONE)
     }
 
     fn is_zero(&self) -> Choice {
@@ -141,14 +128,25 @@ impl Field for Scalar {
     fn sqrt(&self) -> CtOption<Self> {
         unimplemented!();
     }
+
+    fn sqrt_ratio(_num: &Self, _div: &Self) -> (Choice, Self) {
+        unimplemented!();
+    }
 }
 
 impl PrimeField for Scalar {
     type Repr = FieldBytes;
 
+    const MODULUS: &'static str =
+        "0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff";
     const NUM_BITS: u32 = 256;
     const CAPACITY: u32 = 255;
+    const TWO_INV: Self = Self::ZERO; // BOGUS!
+    const MULTIPLICATIVE_GENERATOR: Self = Self::ZERO; // BOGUS! Should be 7
     const S: u32 = 4;
+    const ROOT_OF_UNITY: Self = Self::ZERO; // BOGUS! Should be 0xffc97f062a770992ba807ace842a3dfc1546cad004378daf0592d7fbb41e6602
+    const ROOT_OF_UNITY_INV: Self = Self::ZERO; // BOGUS!
+    const DELTA: Self = Self::ZERO; // BOGUS!
 
     fn from_repr(bytes: FieldBytes) -> CtOption<Self> {
         ScalarCore::from_be_bytes(bytes).map(Self)
@@ -161,19 +159,6 @@ impl PrimeField for Scalar {
     fn is_odd(&self) -> Choice {
         self.0.is_odd()
     }
-
-    fn multiplicative_generator() -> Self {
-        7u64.into()
-    }
-
-    fn root_of_unity() -> Self {
-        Self::from_repr(arr![u8;
-            0xff, 0xc9, 0x7f, 0x06, 0x2a, 0x77, 0x09, 0x92, 0xba, 0x80, 0x7a, 0xce, 0x84, 0x2a,
-            0x3d, 0xfc, 0x15, 0x46, 0xca, 0xd0, 0x04, 0x37, 0x8d, 0xaf, 0x05, 0x92, 0xd7, 0xfb,
-            0xb4, 0x1e, 0x66, 0x02,
-        ])
-        .unwrap()
-    }
 }
 
 #[cfg(feature = "bits")]
@@ -185,11 +170,11 @@ impl PrimeFieldBits for Scalar {
     type ReprBits = [u64; 4];
 
     fn to_le_bits(&self) -> ScalarBits {
-        self.0.as_uint().to_uint_array().into()
+        self.0.as_uint().to_words().into()
     }
 
     fn char_le_bits() -> ScalarBits {
-        MockCurve::ORDER.to_uint_array().into()
+        MockCurve::ORDER.to_words().into()
     }
 }
 
@@ -313,10 +298,34 @@ impl Neg for Scalar {
     }
 }
 
+impl Sum for Scalar {
+    fn sum<I: Iterator<Item = Self>>(_iter: I) -> Self {
+        unimplemented!();
+    }
+}
+
+impl<'a> Sum<&'a Scalar> for Scalar {
+    fn sum<I: Iterator<Item = &'a Scalar>>(_iter: I) -> Self {
+        unimplemented!();
+    }
+}
+
+impl Product for Scalar {
+    fn product<I: Iterator<Item = Self>>(_iter: I) -> Self {
+        unimplemented!();
+    }
+}
+
+impl<'a> Product<&'a Scalar> for Scalar {
+    fn product<I: Iterator<Item = &'a Scalar>>(_iter: I) -> Self {
+        unimplemented!();
+    }
+}
+
 impl Reduce<U256> for Scalar {
     fn from_uint_reduced(w: U256) -> Self {
         let (r, underflow) = w.sbb(&MockCurve::ORDER, Limb::ZERO);
-        let underflow = Choice::from((underflow.0 >> (Limb::BIT_SIZE - 1)) as u8);
+        let underflow = Choice::from((underflow.0 >> (Limb::BITS - 1)) as u8);
         let reduced = U256::conditional_select(&w, &r, !underflow);
         Self(ScalarCore::new(reduced).unwrap())
     }
@@ -375,8 +384,15 @@ impl AffineXCoordinate<MockCurve> for AffinePoint {
 }
 
 impl ConstantTimeEq for AffinePoint {
-    fn ct_eq(&self, _other: &Self) -> Choice {
-        unimplemented!();
+    fn ct_eq(&self, other: &Self) -> Choice {
+        match (self, other) {
+            (Self::FixedBaseOutput(scalar), Self::FixedBaseOutput(other_scalar)) => {
+                scalar.ct_eq(other_scalar)
+            }
+            (Self::Identity, Self::Identity) | (Self::Generator, Self::Generator) => 1.into(),
+            (Self::Other(point), Self::Other(other_point)) => u8::from(point == other_point).into(),
+            _ => 0.into(),
+        }
     }
 }
 
@@ -456,14 +472,25 @@ pub enum ProjectivePoint {
 }
 
 impl ConstantTimeEq for ProjectivePoint {
-    fn ct_eq(&self, _other: &Self) -> Choice {
-        unimplemented!();
+    fn ct_eq(&self, other: &Self) -> Choice {
+        match (self, other) {
+            (Self::FixedBaseOutput(scalar), Self::FixedBaseOutput(other_scalar)) => {
+                scalar.ct_eq(other_scalar)
+            }
+            (Self::Identity, Self::Identity) | (Self::Generator, Self::Generator) => 1.into(),
+            (Self::Other(point), Self::Other(other_point)) => point.ct_eq(other_point),
+            _ => 0.into(),
+        }
     }
 }
 
 impl ConditionallySelectable for ProjectivePoint {
-    fn conditional_select(_a: &Self, _b: &Self, _choice: Choice) -> Self {
-        unimplemented!();
+    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
+        if choice.into() {
+            *b
+        } else {
+            *a
+        }
     }
 }
 
@@ -529,6 +556,47 @@ impl group::Group for ProjectivePoint {
     }
 }
 
+impl group::GroupEncoding for AffinePoint {
+    type Repr = CompressedPoint<MockCurve>;
+
+    fn from_bytes(bytes: &Self::Repr) -> CtOption<Self> {
+        EncodedPoint::from_bytes(bytes)
+            .map(|point| CtOption::new(point, Choice::from(1)))
+            .unwrap_or_else(|_| {
+                let is_identity = bytes.ct_eq(&Self::Repr::default());
+                CtOption::new(EncodedPoint::identity(), is_identity)
+            })
+            .and_then(|point| Self::from_encoded_point(&point))
+    }
+
+    fn from_bytes_unchecked(bytes: &Self::Repr) -> CtOption<Self> {
+        Self::from_bytes(bytes)
+    }
+
+    fn to_bytes(&self) -> Self::Repr {
+        let encoded = self.to_encoded_point(true);
+        let mut result = CompressedPoint::<MockCurve>::default();
+        result[..encoded.len()].copy_from_slice(encoded.as_bytes());
+        result
+    }
+}
+
+impl group::GroupEncoding for ProjectivePoint {
+    type Repr = CompressedPoint<MockCurve>;
+
+    fn from_bytes(bytes: &Self::Repr) -> CtOption<Self> {
+        <AffinePoint as group::GroupEncoding>::from_bytes(bytes).map(Into::into)
+    }
+
+    fn from_bytes_unchecked(bytes: &Self::Repr) -> CtOption<Self> {
+        Self::from_bytes(bytes)
+    }
+
+    fn to_bytes(&self) -> Self::Repr {
+        group::Curve::to_affine(self).to_bytes()
+    }
+}
+
 impl group::Curve for ProjectivePoint {
     type AffineRepr = AffinePoint;
 
@@ -540,6 +608,8 @@ impl group::Curve for ProjectivePoint {
         }
     }
 }
+
+impl LinearCombination for ProjectivePoint {}
 
 impl Add<ProjectivePoint> for ProjectivePoint {
     type Output = ProjectivePoint;

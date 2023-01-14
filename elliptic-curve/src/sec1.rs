@@ -5,13 +5,26 @@
 pub use sec1::point::{Coordinates, ModulusSize, Tag};
 
 use crate::{Curve, FieldSize, Result, SecretKey};
+use generic_array::GenericArray;
 use subtle::CtOption;
 
 #[cfg(feature = "arithmetic")]
-use crate::{AffinePoint, Error, ProjectiveArithmetic};
+use crate::{AffinePoint, CurveArithmetic, Error};
+
+/// Encoded elliptic curve point with point compression.
+pub type CompressedPoint<C> = GenericArray<u8, CompressedPointSize<C>>;
+
+/// Size of a compressed elliptic curve point.
+pub type CompressedPointSize<C> = <FieldSize<C> as ModulusSize>::CompressedPointSize;
 
 /// Encoded elliptic curve point sized appropriately for a given curve.
 pub type EncodedPoint<C> = sec1::point::EncodedPoint<FieldSize<C>>;
+
+/// Encoded elliptic curve point *without* point compression.
+pub type UncompressedPoint<C> = GenericArray<u8, UncompressedPointSize<C>>;
+
+/// Size of an uncompressed elliptic curve point.
+pub type UncompressedPointSize<C> = <FieldSize<C> as ModulusSize>::UncompressedPointSize;
 
 /// Trait for deserializing a value from a SEC1 encoded curve point.
 ///
@@ -49,7 +62,7 @@ where
 {
     /// Serialize this value as a SEC1 [`EncodedPoint`], optionally applying
     /// point compression.
-    fn to_compact_encoded_point(&self) -> Option<EncodedPoint<C>>;
+    fn to_compact_encoded_point(&self) -> CtOption<EncodedPoint<C>>;
 }
 
 /// Validate that the given [`EncodedPoint`] represents the encoded public key
@@ -83,7 +96,7 @@ where
 #[cfg(all(feature = "arithmetic"))]
 impl<C> ValidatePublicKey for C
 where
-    C: Curve + ProjectiveArithmetic,
+    C: CurveArithmetic,
     AffinePoint<C>: FromEncodedPoint<C> + ToEncodedPoint<C>,
     FieldSize<C>: ModulusSize,
 {

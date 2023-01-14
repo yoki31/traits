@@ -27,13 +27,15 @@
 //! [SIGMA]: https://webee.technion.ac.il/~hugo/sigma-pdf.pdf
 
 use crate::{
-    AffineArithmetic, AffinePoint, AffineXCoordinate, Curve, FieldBytes, NonZeroScalar,
-    ProjectiveArithmetic, ProjectivePoint, PublicKey,
+    AffinePoint, AffineXCoordinate, Curve, CurveArithmetic, FieldBytes, NonZeroScalar,
+    ProjectivePoint, PublicKey,
 };
 use core::borrow::Borrow;
+use digest::{crypto_common::BlockSizeUser, Digest};
 use group::Curve as _;
+use hkdf::{hmac::SimpleHmac, Hkdf};
 use rand_core::{CryptoRng, RngCore};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Low-level Elliptic Curve Diffie-Hellman (ECDH) function.
 ///
@@ -51,7 +53,7 @@ use zeroize::Zeroize;
 ///
 /// ```ignore
 /// let shared_secret = elliptic_curve::ecdh::diffie_hellman(
-///     secret_key.secret_scalar(),
+///     secret_key.to_nonzero_scalar(),
 ///     public_key.as_affine()
 /// );
 /// ```
@@ -60,7 +62,7 @@ pub fn diffie_hellman<C>(
     public_key: impl Borrow<AffinePoint<C>>,
 ) -> SharedSecret<C>
 where
-    C: Curve + ProjectiveArithmetic,
+    C: CurveArithmetic,
 {
     let public_point = ProjectivePoint::<C>::from(*public_key.borrow());
     let secret_point = (public_point * secret_key.borrow().as_ref()).to_affine();
@@ -90,14 +92,14 @@ where
 /// takes further steps to authenticate the peers in a key exchange.
 pub struct EphemeralSecret<C>
 where
-    C: Curve + ProjectiveArithmetic,
+    C: CurveArithmetic,
 {
     scalar: NonZeroScalar<C>,
 }
 
 impl<C> EphemeralSecret<C>
 where
-    C: Curve + ProjectiveArithmetic,
+    C: CurveArithmetic,
 {
     /// Generate a cryptographically random [`EphemeralSecret`].
     pub fn random(rng: impl CryptoRng + RngCore) -> Self {
@@ -122,7 +124,7 @@ where
 
 impl<C> From<&EphemeralSecret<C>> for PublicKey<C>
 where
-    C: Curve + ProjectiveArithmetic,
+    C: CurveArithmetic,
 {
     fn from(ephemeral_secret: &EphemeralSecret<C>) -> Self {
         ephemeral_secret.public_key()
@@ -131,16 +133,18 @@ where
 
 impl<C> Zeroize for EphemeralSecret<C>
 where
-    C: Curve + ProjectiveArithmetic,
+    C: CurveArithmetic,
 {
     fn zeroize(&mut self) {
         self.scalar.zeroize()
     }
 }
 
+impl<C> ZeroizeOnDrop for EphemeralSecret<C> where C: CurveArithmetic {}
+
 impl<C> Drop for EphemeralSecret<C>
 where
-    C: Curve + ProjectiveArithmetic,
+    C: CurveArithmetic,
 {
     fn drop(&mut self) {
         self.zeroize();
@@ -148,20 +152,6 @@ where
 }
 
 /// Shared secret value computed via ECDH key agreement.
-///
-/// This value contains the raw serialized x-coordinate of the elliptic curve
-/// point computed from a Diffie-Hellman exchange.
-///
-/// # ⚠️ WARNING: NOT UNIFORMLY RANDOM! ⚠️
-///
-/// This value is not uniformly random and should not be used directly
-/// as a cryptographic key for anything which requires that property
-/// (e.g. symmetric ciphers).
-///
-/// Instead, the resulting value should be used as input to a Key Derivation
-/// Function (KDF) or cryptographic hash function to produce a symmetric key.
-// TODO(tarcieri): KDF traits and support for deriving uniform keys
-// See: https://github.com/RustCrypto/traits/issues/5
 pub struct SharedSecret<C: Curve> {
     /// Computed secret value
     secret_bytes: FieldBytes<C>,
@@ -172,20 +162,55 @@ impl<C: Curve> SharedSecret<C> {
     #[inline]
     fn new(point: AffinePoint<C>) -> Self
     where
-        C: AffineArithmetic,
+        C: CurveArithmetic,
     {
         Self {
             secret_bytes: point.x(),
         }
     }
 
-    /// Shared secret value, serialized as bytes.
+    /// Use [HKDF] (HMAC-based Extract-and-Expand Key Derivation Function) to
+    /// extract entropy from this shared secret.
     ///
-    /// As noted in the comments for this struct, this value is non-uniform and
-    /// should not be used directly as a symmetric encryption key, but instead
-    /// as input to a KDF (or failing that, a hash function) used to produce
-    /// a symmetric key.
-    pub fn as_bytes(&self) -> &FieldBytes<C> {
+    /// This method can be used to transform the shared secret into uniformly
+    /// random values which are suitable as key material.
+    ///
+    /// The `D` type parameter is a cryptographic digest function.
+    /// `sha2::Sha256` is a common choice for use with HKDF.
+    ///
+    /// The `salt` parameter can be used to supply additional randomness.
+    /// Some examples include:
+    ///
+    /// - randomly generated (but authenticated) string
+    /// - fixed application-specific value
+    /// - previous shared secret used for rekeying (as in TLS 1.3 and Noise)
+    ///
+    /// After initializing HKDF, use [`Hkdf::expand`] to obtain output key
+    /// material.
+    ///
+    /// [HKDF]: https://en.wikipedia.org/wiki/HKDF
+    pub fn extract<D>(&self, salt: Option<&[u8]>) -> Hkdf<D, SimpleHmac<D>>
+    where
+        D: BlockSizeUser + Clone + Digest,
+    {
+        Hkdf::new(salt, &self.secret_bytes)
+    }
+
+    /// This value contains the raw serialized x-coordinate of the elliptic curve
+    /// point computed from a Diffie-Hellman exchange, serialized as bytes.
+    ///
+    /// When in doubt, use [`SharedSecret::extract`] instead.
+    ///
+    /// # ⚠️ WARNING: NOT UNIFORMLY RANDOM! ⚠️
+    ///
+    /// This value is not uniformly random and should not be used directly
+    /// as a cryptographic key for anything which requires that property
+    /// (e.g. symmetric ciphers).
+    ///
+    /// Instead, the resulting value should be used as input to a Key Derivation
+    /// Function (KDF) or cryptographic hash function to produce a symmetric key.
+    /// The [`SharedSecret::extract`] function will do this for you.
+    pub fn raw_secret_bytes(&self) -> &FieldBytes<C> {
         &self.secret_bytes
     }
 }
@@ -202,14 +227,10 @@ impl<C: Curve> From<FieldBytes<C>> for SharedSecret<C> {
     }
 }
 
-impl<C: Curve> Zeroize for SharedSecret<C> {
-    fn zeroize(&mut self) {
-        self.secret_bytes.zeroize()
-    }
-}
+impl<C: Curve> ZeroizeOnDrop for SharedSecret<C> {}
 
 impl<C: Curve> Drop for SharedSecret<C> {
     fn drop(&mut self) {
-        self.zeroize();
+        self.secret_bytes.zeroize()
     }
 }

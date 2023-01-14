@@ -3,9 +3,8 @@
 pub use password_hash::{
     Decimal, Error, Ident, Output, ParamsString, PasswordHash, PasswordHasher, Result, Salt,
 };
-use std::convert::{TryFrom, TryInto};
 
-const ALG: Ident = Ident::new("example");
+const ALG: Ident = Ident::new_unwrap("example");
 
 /// Stub password hashing function for testing.
 pub struct StubPasswordHasher;
@@ -69,12 +68,12 @@ impl<'a> TryFrom<StubParams> for ParamsString {
 #[test]
 fn verify_password_hash() {
     let valid_password = "test password";
-    let salt = "test-salt";
+    let salt = Salt::new("test-salt").unwrap();
     let hash = PasswordHash::generate(StubPasswordHasher, valid_password, salt).unwrap();
 
     // Sanity tests for StubFunction impl above
     assert_eq!(hash.algorithm, ALG);
-    assert_eq!(hash.salt.unwrap().as_str(), salt);
+    assert_eq!(hash.salt.unwrap(), salt);
 
     // Tests for generic password verification logic
     assert_eq!(

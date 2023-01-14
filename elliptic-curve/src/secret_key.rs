@@ -2,20 +2,18 @@
 //!
 //! The [`SecretKey`] type is a wrapper around a secret scalar value which is
 //! designed to prevent unintentional exposure (e.g. via `Debug` or other
-//! logging).
-//!
-//! When the `zeroize` feature of this crate is enabled, it also handles
-//! zeroing it out of memory securely on drop.
+//! logging). It also handles zeroing the secret value out of memory securely
+//! on drop.
 
 #[cfg(all(feature = "pkcs8", feature = "sec1"))]
 mod pkcs8;
 
 use crate::{Curve, Error, FieldBytes, Result, ScalarCore};
 use core::fmt::{self, Debug};
-use crypto_bigint::Encoding;
+use crypto_bigint::Integer;
 use generic_array::GenericArray;
 use subtle::{Choice, ConstantTimeEq};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[cfg(all(feature = "alloc", feature = "arithmetic"))]
 use {
@@ -24,18 +22,23 @@ use {
         AffinePoint,
     },
     alloc::vec::Vec,
-    der::Encodable,
     zeroize::Zeroizing,
 };
 
 #[cfg(feature = "arithmetic")]
 use crate::{
     rand_core::{CryptoRng, RngCore},
-    NonZeroScalar, ProjectiveArithmetic, PublicKey,
+    CurveArithmetic, NonZeroScalar, PublicKey,
 };
 
 #[cfg(feature = "jwk")]
 use crate::jwk::{JwkEcKey, JwkParameters};
+
+#[cfg(feature = "sec1")]
+use sec1::der;
+
+#[cfg(all(feature = "alloc", feature = "arithmetic", feature = "sec1"))]
+use sec1::der::Encode;
 
 #[cfg(all(feature = "arithmetic", any(feature = "jwk", feature = "pem")))]
 use alloc::string::String;
@@ -78,9 +81,7 @@ pub(crate) const SEC1_PEM_TYPE_LABEL: &str = "EC PRIVATE KEY";
 ///
 /// To decode an elliptic curve private key from PKCS#8, enable the `pkcs8`
 /// feature of this crate (or the `pkcs8` feature of a specific RustCrypto
-/// elliptic curve crate) and use the
-/// [`elliptic_curve::pkcs8::DecodePrivateKey`][`DecodePrivateKey`]
-/// trait to parse it.
+/// elliptic curve crate) and use the [`DecodePrivateKey`]  trait to parse it.
 ///
 /// When the `pem` feature of this crate (or a specific RustCrypto elliptic
 /// curve crate) is enabled, a [`FromStr`] impl is also available.
@@ -96,10 +97,9 @@ where
 {
     /// Generate a random [`SecretKey`].
     #[cfg(feature = "arithmetic")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "arithmetic")))]
     pub fn random(rng: impl CryptoRng + RngCore) -> Self
     where
-        C: ProjectiveArithmetic,
+        C: CurveArithmetic,
     {
         Self {
             inner: NonZeroScalar::<C>::random(rng).into(),
@@ -130,27 +130,25 @@ where
     ///
     /// Please treat it with the care it deserves!
     #[cfg(feature = "arithmetic")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "arithmetic")))]
     pub fn to_nonzero_scalar(&self) -> NonZeroScalar<C>
     where
-        C: Curve + ProjectiveArithmetic,
+        C: CurveArithmetic,
     {
         self.into()
     }
 
     /// Get the [`PublicKey`] which corresponds to this secret key
     #[cfg(feature = "arithmetic")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "arithmetic")))]
     pub fn public_key(&self) -> PublicKey<C>
     where
-        C: Curve + ProjectiveArithmetic,
+        C: CurveArithmetic,
     {
         PublicKey::from_secret_scalar(&self.to_nonzero_scalar())
     }
 
     /// Deserialize raw secret scalar as a big endian integer.
     pub fn from_be_bytes(bytes: &[u8]) -> Result<Self> {
-        if bytes.len() != C::UInt::BYTE_SIZE {
+        if bytes.len() != C::Uint::BYTES {
             return Err(Error);
         }
 
@@ -173,7 +171,6 @@ where
 
     /// Deserialize secret key encoded in the SEC1 ASN.1 DER `ECPrivateKey` format.
     #[cfg(all(feature = "sec1"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "sec1")))]
     pub fn from_sec1_der(der_bytes: &[u8]) -> Result<Self>
     where
         C: Curve + ValidatePublicKey,
@@ -186,13 +183,9 @@ where
 
     /// Serialize secret key in the SEC1 ASN.1 DER `ECPrivateKey` format.
     #[cfg(all(feature = "alloc", feature = "arithmetic", feature = "sec1"))]
-    #[cfg_attr(
-        docsrs,
-        doc(cfg(all(feature = "alloc", feature = "arithmetic", feature = "sec1")))
-    )]
     pub fn to_sec1_der(&self) -> der::Result<Zeroizing<Vec<u8>>>
     where
-        C: Curve + ProjectiveArithmetic,
+        C: CurveArithmetic,
         AffinePoint<C>: FromEncodedPoint<C> + ToEncodedPoint<C>,
         FieldSize<C>: ModulusSize,
     {
@@ -223,7 +216,6 @@ where
     /// -----BEGIN EC PRIVATE KEY-----
     /// ```
     #[cfg(feature = "pem")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "pem")))]
     pub fn from_sec1_pem(s: &str) -> Result<Self>
     where
         C: Curve + ValidatePublicKey,
@@ -243,10 +235,9 @@ where
     ///
     /// Pass `Default::default()` to use the OS's native line endings.
     #[cfg(feature = "pem")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "pem")))]
     pub fn to_pem(&self, line_ending: pem::LineEnding) -> Result<Zeroizing<String>>
     where
-        C: Curve + ProjectiveArithmetic,
+        C: CurveArithmetic,
         AffinePoint<C>: FromEncodedPoint<C> + ToEncodedPoint<C>,
         FieldSize<C>: ModulusSize,
     {
@@ -259,7 +250,6 @@ where
 
     /// Parse a [`JwkEcKey`] JSON Web Key (JWK) into a [`SecretKey`].
     #[cfg(feature = "jwk")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "jwk")))]
     pub fn from_jwk(jwk: &JwkEcKey) -> Result<Self>
     where
         C: JwkParameters + ValidatePublicKey,
@@ -270,7 +260,6 @@ where
 
     /// Parse a string containing a JSON Web Key (JWK) into a [`SecretKey`].
     #[cfg(feature = "jwk")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "jwk")))]
     pub fn from_jwk_str(jwk: &str) -> Result<Self>
     where
         C: JwkParameters + ValidatePublicKey,
@@ -281,11 +270,9 @@ where
 
     /// Serialize this secret key as [`JwkEcKey`] JSON Web Key (JWK).
     #[cfg(all(feature = "arithmetic", feature = "jwk"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "arithmetic")))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "jwk")))]
     pub fn to_jwk(&self) -> JwkEcKey
     where
-        C: Curve + JwkParameters + ProjectiveArithmetic,
+        C: CurveArithmetic + JwkParameters,
         AffinePoint<C>: FromEncodedPoint<C> + ToEncodedPoint<C>,
         FieldSize<C>: ModulusSize,
     {
@@ -294,11 +281,9 @@ where
 
     /// Serialize this secret key as JSON Web Key (JWK) string.
     #[cfg(all(feature = "arithmetic", feature = "jwk"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "arithmetic")))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "jwk")))]
     pub fn to_jwk_string(&self) -> Zeroizing<String>
     where
-        C: Curve + JwkParameters + ProjectiveArithmetic,
+        C: CurveArithmetic + JwkParameters,
         AffinePoint<C>: FromEncodedPoint<C> + ToEncodedPoint<C>,
         FieldSize<C>: ModulusSize,
     {
@@ -325,6 +310,8 @@ where
     }
 }
 
+impl<C> ZeroizeOnDrop for SecretKey<C> where C: Curve {}
+
 impl<C> Drop for SecretKey<C>
 where
     C: Curve,
@@ -346,7 +333,6 @@ where
 }
 
 #[cfg(all(feature = "sec1"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "sec1")))]
 impl<C> TryFrom<sec1::EcPrivateKey<'_>> for SecretKey<C>
 where
     C: Curve + ValidatePublicKey,
@@ -373,10 +359,9 @@ where
 }
 
 #[cfg(feature = "arithmetic")]
-#[cfg_attr(docsrs, doc(cfg(feature = "arithmetic")))]
 impl<C> From<NonZeroScalar<C>> for SecretKey<C>
 where
-    C: Curve + ProjectiveArithmetic,
+    C: CurveArithmetic,
 {
     fn from(scalar: NonZeroScalar<C>) -> SecretKey<C> {
         SecretKey::from(&scalar)
@@ -384,10 +369,9 @@ where
 }
 
 #[cfg(feature = "arithmetic")]
-#[cfg_attr(docsrs, doc(cfg(feature = "arithmetic")))]
 impl<C> From<&NonZeroScalar<C>> for SecretKey<C>
 where
-    C: Curve + ProjectiveArithmetic,
+    C: CurveArithmetic,
 {
     fn from(scalar: &NonZeroScalar<C>) -> SecretKey<C> {
         SecretKey {

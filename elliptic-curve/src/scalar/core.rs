@@ -2,7 +2,6 @@
 
 use crate::{
     bigint::{prelude::*, Limb, NonZero},
-    hex,
     rand_core::{CryptoRng, RngCore},
     subtle::{
         Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater, ConstantTimeLess,
@@ -10,6 +9,7 @@ use crate::{
     },
     Curve, Error, FieldBytes, IsHigh, Result,
 };
+use base16ct::HexDisplay;
 use core::{
     cmp::Ordering,
     fmt,
@@ -21,24 +21,31 @@ use zeroize::DefaultIsZeroes;
 
 #[cfg(feature = "arithmetic")]
 use {
-    super::{Scalar, ScalarArithmetic},
-    group::ff::PrimeField,
+    super::{CurveArithmetic, Scalar},
+    ff::PrimeField,
 };
 
 #[cfg(feature = "serde")]
-use serde::{de, ser, Deserialize, Serialize};
+use serdect::serde::{de, ser, Deserialize, Serialize};
 
 /// Generic scalar type with core functionality.
 ///
 /// This type provides a baseline level of scalar arithmetic functionality
 /// which is always available for all curves, regardless of if they implement
 /// any arithmetic traits.
-// TODO(tarcieri): make this a fully generic `Scalar` type and use it for `ScalarArithmetic`
+///
+/// # `serde` support
+///
+/// When the optional `serde` feature of this create is enabled, [`Serialize`]
+/// and [`Deserialize`] impls are provided for this type.
+///
+/// The serialization is a fixed-width big endian encoding. When used with
+/// textual formats, the binary data is encoded as hexadecimal.
+// TODO(tarcieri): make this a fully generic `Scalar` type and use it for `CurveArithmetic`
 #[derive(Copy, Clone, Debug, Default)]
-#[cfg_attr(docsrs, doc(cfg(feature = "arithmetic")))]
 pub struct ScalarCore<C: Curve> {
     /// Inner unsigned integer type.
-    inner: C::UInt,
+    inner: C::Uint,
 }
 
 impl<C> ScalarCore<C>
@@ -47,37 +54,37 @@ where
 {
     /// Zero scalar.
     pub const ZERO: Self = Self {
-        inner: C::UInt::ZERO,
+        inner: C::Uint::ZERO,
     };
 
     /// Multiplicative identity.
     pub const ONE: Self = Self {
-        inner: C::UInt::ONE,
+        inner: C::Uint::ONE,
     };
 
     /// Scalar modulus.
-    pub const MODULUS: C::UInt = C::ORDER;
+    pub const MODULUS: C::Uint = C::ORDER;
 
     /// Generate a random [`ScalarCore`].
     pub fn random(rng: impl CryptoRng + RngCore) -> Self {
         Self {
-            inner: C::UInt::random_mod(rng, &NonZero::new(Self::MODULUS).unwrap()),
+            inner: C::Uint::random_mod(rng, &NonZero::new(Self::MODULUS).unwrap()),
         }
     }
 
-    /// Create a new scalar from [`Curve::UInt`].
-    pub fn new(uint: C::UInt) -> CtOption<Self> {
+    /// Create a new scalar from [`Curve::Uint`].
+    pub fn new(uint: C::Uint) -> CtOption<Self> {
         CtOption::new(Self { inner: uint }, uint.ct_lt(&Self::MODULUS))
     }
 
     /// Decode [`ScalarCore`] from big endian bytes.
     pub fn from_be_bytes(bytes: FieldBytes<C>) -> CtOption<Self> {
-        Self::new(C::UInt::from_be_byte_array(bytes))
+        Self::new(C::Uint::from_be_byte_array(bytes))
     }
 
     /// Decode [`ScalarCore`] from a big endian byte slice.
     pub fn from_be_slice(slice: &[u8]) -> Result<Self> {
-        if slice.len() == C::UInt::BYTE_SIZE {
+        if slice.len() == C::Uint::BYTES {
             Option::from(Self::from_be_bytes(GenericArray::clone_from_slice(slice))).ok_or(Error)
         } else {
             Err(Error)
@@ -86,20 +93,20 @@ where
 
     /// Decode [`ScalarCore`] from little endian bytes.
     pub fn from_le_bytes(bytes: FieldBytes<C>) -> CtOption<Self> {
-        Self::new(C::UInt::from_le_byte_array(bytes))
+        Self::new(C::Uint::from_le_byte_array(bytes))
     }
 
     /// Decode [`ScalarCore`] from a little endian byte slice.
     pub fn from_le_slice(slice: &[u8]) -> Result<Self> {
-        if slice.len() == C::UInt::BYTE_SIZE {
+        if slice.len() == C::Uint::BYTES {
             Option::from(Self::from_le_bytes(GenericArray::clone_from_slice(slice))).ok_or(Error)
         } else {
             Err(Error)
         }
     }
 
-    /// Borrow the inner `C::UInt`.
-    pub fn as_uint(&self) -> &C::UInt {
+    /// Borrow the inner `C::Uint`.
+    pub fn as_uint(&self) -> &C::Uint {
         &self.inner
     }
 
@@ -137,7 +144,7 @@ where
 #[cfg(feature = "arithmetic")]
 impl<C> ScalarCore<C>
 where
-    C: Curve + ScalarArithmetic,
+    C: CurveArithmetic,
 {
     /// Convert [`ScalarCore`] into a given curve's scalar type
     // TODO(tarcieri): replace curve-specific scalars with `ScalarCore`
@@ -162,7 +169,7 @@ where
 {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         Self {
-            inner: C::UInt::conditional_select(&a.inner, &b.inner, choice),
+            inner: C::Uint::conditional_select(&a.inner, &b.inner, choice),
         }
     }
 }
@@ -231,7 +238,7 @@ where
 {
     fn from(n: u64) -> Self {
         Self {
-            inner: C::UInt::from(n),
+            inner: C::Uint::from(n),
         }
     }
 }
@@ -368,7 +375,7 @@ where
     C: Curve,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        hex::write_lower(&self.to_be_bytes(), f)
+        write!(f, "{:x}", HexDisplay(&self.to_be_bytes()))
     }
 }
 
@@ -377,7 +384,7 @@ where
     C: Curve,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        hex::write_upper(&self.to_be_bytes(), f)
+        write!(f, "{:X}", HexDisplay(&self.to_be_bytes()))
     }
 }
 
@@ -389,68 +396,36 @@ where
 
     fn from_str(hex: &str) -> Result<Self> {
         let mut bytes = FieldBytes::<C>::default();
-        hex::decode(hex, &mut bytes)?;
+        base16ct::lower::decode(hex, &mut bytes)?;
         Option::from(Self::from_be_bytes(bytes)).ok_or(Error)
     }
 }
 
 #[cfg(feature = "serde")]
-#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 impl<C> Serialize for ScalarCore<C>
 where
     C: Curve,
 {
-    #[cfg(not(feature = "alloc"))]
     fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: ser::Serializer,
     {
-        self.to_be_bytes().as_slice().serialize(serializer)
-    }
-
-    #[cfg(feature = "alloc")]
-    fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
-    where
-        S: ser::Serializer,
-    {
-        use alloc::string::ToString;
-        if serializer.is_human_readable() {
-            self.to_string().serialize(serializer)
-        } else {
-            self.to_be_bytes().as_slice().serialize(serializer)
-        }
+        serdect::array::serialize_hex_upper_or_bin(&self.to_be_bytes(), serializer)
     }
 }
 
 #[cfg(feature = "serde")]
-#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 impl<'de, C> Deserialize<'de> for ScalarCore<C>
 where
     C: Curve,
 {
-    #[cfg(not(feature = "alloc"))]
     fn deserialize<D>(deserializer: D) -> core::result::Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
     {
-        use de::Error;
-        <&[u8]>::deserialize(deserializer)
-            .and_then(|slice| Self::from_be_slice(slice).map_err(D::Error::custom))
-    }
-
-    #[cfg(feature = "alloc")]
-    fn deserialize<D>(deserializer: D) -> core::result::Result<Self, D::Error>
-    where
-        D: de::Deserializer<'de>,
-    {
-        use de::Error;
-        if deserializer.is_human_readable() {
-            <&str>::deserialize(deserializer)?
-                .parse()
-                .map_err(D::Error::custom)
-        } else {
-            <&[u8]>::deserialize(deserializer)
-                .and_then(|slice| Self::from_be_slice(slice).map_err(D::Error::custom))
-        }
+        let mut bytes = FieldBytes::<C>::default();
+        serdect::array::deserialize_hex_or_bin(&mut bytes, deserializer)?;
+        Option::from(Self::from_be_bytes(bytes))
+            .ok_or_else(|| de::Error::custom("scalar out of range"))
     }
 }

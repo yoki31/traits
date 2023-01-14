@@ -1,3 +1,12 @@
+#![no_std]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/8f1a9894/logo.svg",
+    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/media/8f1a9894/logo.svg",
+    html_root_url = "https://docs.rs/crypto/0.4.0-pre"
+)]
+#![forbid(unsafe_code)]
+#![warn(rust_2018_idioms)]
+
 //! Facade crate for [RustCrypto Traits][1], providing a single place to
 //! access compatible versions of all traits from the Rust Crypto project.
 //!
@@ -27,7 +36,6 @@
 //! | [`cipher`](https://docs.rs/cipher) | `cipher` | Block and stream ciphers (i.e. low-level symmetric encryption) |
 //! | [`digest`](https://docs.rs/digest) | `digest` | Cryptographic hash functions |
 //! | [`elliptic_curve`](https://docs.rs/elliptic-curve) | `elliptic-curve` | Elliptic curve cryptography |
-//! | [`mac`](https://docs.rs/crypto-mac) | `mac` | Message Authentication Codes (i.e. symmetric message authentication) |
 //! | [`password_hash`](https://docs.rs/password-hash) | `password-hash` | Password hashing functions |
 //! | [`signature`](https://docs.rs/signature) | `signature` | Digital signatures (i.e. public key-based message authentication) |
 //! | [`universal_hash`](https://docs.rs/universal-hash) | `universal‑hash` | Universal Hash Functions (used to build MACs) |
@@ -35,14 +43,7 @@
 //! [1]: https://github.com/RustCrypto/traits
 //! [2]: https://github.com/RustCrypto
 
-#![no_std]
-#![doc(
-    html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/8f1a9894/logo.svg",
-    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/media/8f1a9894/logo.svg",
-    html_root_url = "https://docs.rs/crypto/0.4.0-pre"
-)]
-#![forbid(unsafe_code)]
-#![warn(rust_2018_idioms)]
+pub use crypto_common as common;
 
 #[cfg(feature = "aead")]
 pub use aead;
@@ -55,9 +56,6 @@ pub use digest;
 
 #[cfg(feature = "elliptic-curve")]
 pub use elliptic_curve;
-
-#[cfg(feature = "mac")]
-pub use mac;
 
 #[cfg(feature = "password-hash")]
 pub use password_hash;

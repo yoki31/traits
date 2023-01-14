@@ -17,7 +17,7 @@
 //! [1]: https://github.com/P-H-C/phc-string-format/blob/master/phc-sf-spec.md
 
 use crate::{Error, Result};
-use core::{convert::TryFrom, fmt, ops::Deref, str};
+use core::{fmt, ops::Deref, str};
 
 /// Algorithm or parameter identifier.
 ///
@@ -47,50 +47,42 @@ impl<'a> Ident<'a> {
 
     /// Parse an [`Ident`] from a string.
     ///
-    /// # Panics
-    ///
-    /// Must conform to the contraints given in the type-level documentation,
-    /// or else it will panic.
-    ///
-    /// This method is intended for use in a `const` context where instead of
-    /// panicking it will cause a compile error.
-    ///
-    /// For fallible non-panicking parsing of an [`Ident`], use the [`TryFrom`]
-    /// impl on this type instead.
-    pub const fn new(s: &'a str) -> Self {
+    /// String must conform to the constraints given in the type-level
+    /// documentation.
+    pub const fn new(s: &'a str) -> Result<Self> {
         let input = s.as_bytes();
 
-        /// Constant panicking assertion.
-        // TODO(tarcieri): use const panic when stable.
-        // See: https://github.com/rust-lang/rust/issues/51999
-        macro_rules! const_assert {
-            ($bool:expr, $msg:expr) => {
-                [$msg][!$bool as usize]
-            };
-        }
+        match input.len() {
+            1..=Self::MAX_LENGTH => {
+                let mut i = 0;
 
-        const_assert!(!input.is_empty(), "PHC ident string can't be empty");
-        const_assert!(input.len() <= Self::MAX_LENGTH, "PHC ident string too long");
-
-        macro_rules! validate_chars {
-            ($($pos:expr),+) => {
-                $(
-                    if $pos < input.len() {
-                        const_assert!(
-                            is_char_valid(input[$pos]),
-                            "invalid character in PHC string ident"
-                        );
+                while i < input.len() {
+                    if !matches!(input[i], b'a'..=b'z' | b'0'..=b'9' | b'-') {
+                        return Err(Error::ParamNameInvalid);
                     }
-                )+
-            };
+
+                    i += 1;
+                }
+
+                Ok(Self(s))
+            }
+            _ => Err(Error::ParamNameInvalid),
         }
+    }
 
-        validate_chars!(
-            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-            24, 25, 26, 27, 28, 29, 30, 31
-        );
+    /// Parse an [`Ident`] from a string, panicking on parse errors.
+    ///
+    /// This function exists as a workaround for `unwrap` not yet being
+    /// stable in `const fn` contexts, and is intended to allow the result to
+    /// be bound to a constant value.
+    pub const fn new_unwrap(s: &'a str) -> Self {
+        assert!(!s.is_empty(), "PHC ident string can't be empty");
+        assert!(s.len() <= Self::MAX_LENGTH, "PHC ident string too long");
 
-        Self(s)
+        match Self::new(s) {
+            Ok(ident) => ident,
+            Err(_) => panic!("invalid PHC string format identifier"),
+        }
     }
 
     /// Borrow this ident as a `str`
@@ -119,24 +111,7 @@ impl<'a> TryFrom<&'a str> for Ident<'a> {
     type Error = Error;
 
     fn try_from(s: &'a str) -> Result<Self> {
-        if s.is_empty() {
-            return Err(Error::ParamNameInvalid);
-        }
-
-        let bytes = s.as_bytes();
-        let too_long = bytes.len() > Self::MAX_LENGTH;
-
-        if too_long {
-            return Err(Error::ParamNameInvalid);
-        }
-
-        for &c in bytes {
-            if !is_char_valid(c) {
-                return Err(Error::ParamNameInvalid);
-            }
-        }
-
-        Ok(Self::new(s))
+        Self::new(s)
     }
 }
 
@@ -152,15 +127,9 @@ impl<'a> fmt::Debug for Ident<'a> {
     }
 }
 
-/// Ensure the given ASCII character (i.e. byte) is allowed in an [`Ident`].
-const fn is_char_valid(c: u8) -> bool {
-    matches!(c, b'a'..=b'z' | b'0'..=b'9' | b'-')
-}
-
 #[cfg(test)]
 mod tests {
     use super::{Error, Ident};
-    use core::convert::TryFrom;
 
     // Invalid ident examples
     const INVALID_EMPTY: &str = "";
@@ -173,58 +142,30 @@ mod tests {
         let valid_examples = ["6", "x", "argon2d", "01234567891123456789212345678931"];
 
         for &example in &valid_examples {
-            let const_val = Ident::new(example);
-            let try_from_val = Ident::try_from(example).unwrap();
-            assert_eq!(example, &*const_val);
-            assert_eq!(example, &*try_from_val);
+            assert_eq!(example, &*Ident::new(example).unwrap());
         }
     }
 
     #[test]
-    #[should_panic]
-    fn reject_empty_const() {
-        Ident::new(INVALID_EMPTY);
+    fn reject_empty() {
+        assert_eq!(Ident::new(INVALID_EMPTY), Err(Error::ParamNameInvalid));
     }
 
     #[test]
-    fn reject_empty_fallible() {
-        let err = Ident::try_from(INVALID_EMPTY).err().unwrap();
-        assert_eq!(err, Error::ParamNameInvalid);
+    fn reject_invalid() {
+        assert_eq!(Ident::new(INVALID_CHAR), Err(Error::ParamNameInvalid));
     }
 
     #[test]
-    #[should_panic]
-    fn reject_invalid_char_const() {
-        Ident::new(INVALID_CHAR);
+    fn reject_too_long() {
+        assert_eq!(Ident::new(INVALID_TOO_LONG), Err(Error::ParamNameInvalid));
     }
 
     #[test]
-    fn reject_invalid_char_fallible() {
-        let err = Ident::try_from(INVALID_CHAR).err().unwrap();
-        assert_eq!(err, Error::ParamNameInvalid);
-    }
-
-    #[test]
-    #[should_panic]
-    fn reject_too_long_const() {
-        Ident::new(INVALID_TOO_LONG);
-    }
-
-    #[test]
-    fn reject_too_long_fallible() {
-        let err = Ident::try_from(INVALID_TOO_LONG).err().unwrap();
-        assert_eq!(err, Error::ParamNameInvalid);
-    }
-
-    #[test]
-    #[should_panic]
-    fn reject_invalid_char_and_too_long_const() {
-        Ident::new(INVALID_CHAR_AND_TOO_LONG);
-    }
-
-    #[test]
-    fn reject_invalid_char_and_too_long_fallible() {
-        let err = Ident::try_from(INVALID_CHAR_AND_TOO_LONG).err().unwrap();
-        assert_eq!(err, Error::ParamNameInvalid);
+    fn reject_invalid_char_and_too_long() {
+        assert_eq!(
+            Ident::new(INVALID_CHAR_AND_TOO_LONG),
+            Err(Error::ParamNameInvalid)
+        );
     }
 }

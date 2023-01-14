@@ -18,8 +18,7 @@
 #![forbid(unsafe_code, clippy::unwrap_used)]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/8f1a9894/logo.svg",
-    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/media/8f1a9894/logo.svg",
-    html_root_url = "https://docs.rs/aead/0.4.3"
+    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/media/8f1a9894/logo.svg"
 )]
 #![warn(missing_docs, rust_2018_idioms)]
 
@@ -37,7 +36,16 @@ pub mod dev;
 #[cfg_attr(docsrs, doc(cfg(feature = "stream")))]
 pub mod stream;
 
+pub use crypto_common::{Key, KeyInit, KeySizeUser};
 pub use generic_array::{self, typenum::consts};
+
+#[cfg(feature = "bytes")]
+#[cfg_attr(docsrs, doc(cfg(feature = "bytes")))]
+pub use bytes;
+
+#[cfg(feature = "getrandom")]
+#[cfg_attr(docsrs, doc(cfg(feature = "getrandom")))]
+pub use crypto_common::rand_core::OsRng;
 
 #[cfg(feature = "heapless")]
 #[cfg_attr(docsrs, doc(cfg(feature = "heapless")))]
@@ -45,13 +53,16 @@ pub use heapless;
 
 #[cfg(feature = "rand_core")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand_core")))]
-pub use rand_core;
+pub use crypto_common::rand_core;
 
 use core::fmt;
 use generic_array::{typenum::Unsigned, ArrayLength, GenericArray};
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
+
+#[cfg(feature = "bytes")]
+use bytes::BytesMut;
 
 #[cfg(feature = "rand_core")]
 use rand_core::{CryptoRng, RngCore};
@@ -75,47 +86,11 @@ impl fmt::Display for Error {
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
-/// Key for a [`NewAead`] algorithm
-// TODO(tarcieri): make this a struct and zeroize on drop?
-pub type Key<A> = GenericArray<u8, <A as NewAead>::KeySize>;
-
 /// Nonce: single-use value for ensuring ciphertexts are unique
 pub type Nonce<A> = GenericArray<u8, <A as AeadCore>::NonceSize>;
 
 /// Tag: authentication code which ensures ciphertexts are authentic
 pub type Tag<A> = GenericArray<u8, <A as AeadCore>::TagSize>;
-
-/// Instantiate either a stateless [`Aead`] or stateful [`AeadMut`] algorithm.
-pub trait NewAead {
-    /// The size of the key array required by this algorithm.
-    type KeySize: ArrayLength<u8>;
-
-    /// Create a new AEAD instance with the given key.
-    fn new(key: &Key<Self>) -> Self;
-
-    /// Create new AEAD instance from key given as a byte slice..
-    ///
-    /// Default implementation will accept only keys with length equal to `KeySize`.
-    fn new_from_slice(key: &[u8]) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        if key.len() != Self::KeySize::to_usize() {
-            Err(Error)
-        } else {
-            Ok(Self::new(GenericArray::from_slice(key)))
-        }
-    }
-
-    /// Generate a random key for this AEAD using the provided [`CryptoRng`].
-    #[cfg(feature = "rand_core")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "rand_core")))]
-    fn generate_key(mut rng: impl CryptoRng + RngCore) -> Key<Self> {
-        let mut key = Key::<Self>::default();
-        rng.fill_bytes(&mut key);
-        key
-    }
-}
 
 /// Authenticated Encryption with Associated Data (AEAD) algorithm core trait.
 ///
@@ -131,6 +106,52 @@ pub trait AeadCore {
     /// The upper bound amount of additional space required to support a
     /// ciphertext vs. a plaintext.
     type CiphertextOverhead: ArrayLength<u8> + Unsigned;
+
+    /// Generate a random nonce for this AEAD algorithm.
+    ///
+    /// AEAD algorithms accept a parameter to encryption/decryption called
+    /// a "nonce" which must be unique every time encryption is performed and
+    /// never repeated for the same key. The nonce is often prepended to the
+    /// ciphertext. The nonce used to produce a given ciphertext must be passed
+    /// to the decryption function in order for it to decrypt correctly.
+    ///
+    /// Nonces don't necessarily have to be random, but it is one strategy
+    /// which is implemented by this function.
+    ///
+    /// # ⚠️Security Warning
+    ///
+    /// AEAD algorithms often fail catastrophically if nonces are ever repeated
+    /// (with SIV modes being an exception).
+    ///
+    /// Using random nonces runs the risk of repeating them unless the nonce
+    /// size is particularly large (e.g. 192-bit extended nonces used by the
+    /// `XChaCha20Poly1305` and `XSalsa20Poly1305` constructions.
+    ///
+    /// [NIST SP 800-38D] recommends the following:
+    ///
+    /// > The total number of invocations of the authenticated encryption
+    /// > function shall not exceed 2^32, including all IV lengths and all
+    /// > instances of the authenticated encryption function with the given key.
+    ///
+    /// Following this guideline, only 4,294,967,296 messages with random
+    /// nonces can be encrypted under a given key. While this bound is high,
+    /// it's possible to encounter in practice, and systems which might
+    /// reach it should consider alternatives to purely random nonces, like
+    /// a counter or a combination of a random nonce + counter.
+    ///
+    /// See the [`stream`] module for a ready-made implementation of the latter.
+    ///
+    /// [NIST SP 800-38D]: https://csrc.nist.gov/publications/detail/sp/800-38d/final
+    #[cfg(feature = "rand_core")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "rand_core")))]
+    fn generate_nonce(mut rng: impl CryptoRng + RngCore) -> Nonce<Self>
+    where
+        Nonce<Self>: Default,
+    {
+        let mut nonce = Nonce::<Self>::default();
+        rng.fill_bytes(&mut nonce);
+        nonce
+    }
 }
 
 /// Authenticated Encryption with Associated Data (AEAD) algorithm.
@@ -446,8 +467,10 @@ impl<Alg: AeadInPlace> AeadMutInPlace for Alg {
     }
 }
 
-/// AEAD payloads are a combination of a message (plaintext or ciphertext)
-/// and "additional associated data" (AAD) to be authenticated (in cleartext)
+/// AEAD payloads (message + AAD).
+///
+/// Combination of a message (plaintext or ciphertext) and
+/// "additional associated data" (AAD) to be authenticated (in cleartext)
 /// along with the message.
 ///
 /// If you don't care about AAD, you can pass a `&[u8]` as the payload to
@@ -503,6 +526,26 @@ impl Buffer for Vec<u8> {
 
     fn truncate(&mut self, len: usize) {
         Vec::truncate(self, len);
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl Buffer for BytesMut {
+    fn len(&self) -> usize {
+        BytesMut::len(self)
+    }
+
+    fn is_empty(&self) -> bool {
+        BytesMut::is_empty(self)
+    }
+
+    fn extend_from_slice(&mut self, other: &[u8]) -> Result<()> {
+        BytesMut::extend_from_slice(self, other);
+        Ok(())
+    }
+
+    fn truncate(&mut self, len: usize) {
+        BytesMut::truncate(self, len);
     }
 }
 
