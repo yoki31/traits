@@ -7,7 +7,7 @@ name = "aead"
 version = "0.4.3"
 dependencies = [
  "blobby",
- "generic-array",
+ "generic-array 1.0.0",
  "heapless",
  "rand_core",
 ]
@@ -49,7 +49,7 @@ version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4152116fd6e9dadb291ae18fc1ec3575ed6d84c29642d97890f4b4a3417297e4"
 dependencies = [
- "generic-array",
+ "generic-array 0.14.7",
 ]
 
 [[package]]
@@ -59,7 +59,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4b13c429c0b48d55a541108e23c7795eb821ee65b50c2f719f4f7fc5a022dcf"
 dependencies = [
  "block-padding",
- "generic-array",
+ "generic-array 0.14.7",
 ]
 
 [[package]]
@@ -68,7 +68,7 @@ version = "0.3.0-pre"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3992d179d1dd2fa87869057217d43cf88ad31d4e44738d159a5a6caafdf63ae6"
 dependencies = [
- "generic-array",
+ "generic-array 0.14.7",
 ]
 
 [[package]]
@@ -90,7 +90,7 @@ dependencies = [
  "blobby",
  "block-buffer 0.10.0-pre.4",
  "crypto-common",
- "generic-array",
+ "generic-array 1.0.0",
  "rand_core",
 ]
 
@@ -108,7 +108,7 @@ name = "crypto-common"
 version = "0.1.0-pre"
 dependencies = [
  "block-buffer 0.10.0-pre.4",
- "generic-array",
+ "generic-array 1.0.0",
 ]
 
 [[package]]
@@ -118,7 +118,7 @@ dependencies = [
  "blobby",
  "cipher",
  "crypto-common",
- "generic-array",
+ "generic-array 1.0.0",
  "rand_core",
  "subtle",
 ]
@@ -129,7 +129,7 @@ version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3dd60d1080a57a05ab032377049e0591415d2b31afd7028356dbf3cc6dcb066"
 dependencies = [
- "generic-array",
+ "generic-array 0.14.7",
 ]
 
 [[package]]
@@ -138,17 +138,26 @@ version = "0.10.0-pre.3"
 dependencies = [
  "blobby",
  "crypto-common",
- "generic-array",
+ "generic-array 1.0.0",
 ]
 
 [[package]]
 name = "generic-array"
-version = "0.14.4"
+version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "501466ecc8a30d1d3b7fc9229b122b2ce8ed6e9d9223f1138d4babb253e51817"
+checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
 dependencies = [
  "typenum",
  "version_check",
+]
+
+[[package]]
+name = "generic-array"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe739944a5406424e080edccb6add95685130b9f160d5407c639c7df0c5836b0"
+dependencies = [
+ "typenum",
 ]
 
 [[package]]
@@ -350,9 +359,9 @@ dependencies = [
 
 [[package]]
 name = "typenum"
-version = "1.14.0"
+version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b63708a265f51345575b27fe43f9500ad611579e764c79edbc2037b1121959ec"
+checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
 
 [[package]]
 name = "unicode-xid"
@@ -364,7 +373,7 @@ checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
 name = "universal-hash"
 version = "0.4.1"
 dependencies = [
- "generic-array",
+ "generic-array 1.0.0",
  "subtle",
 ]
 

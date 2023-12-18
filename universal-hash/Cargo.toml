@@ -12,7 +12,7 @@ readme = "README.md"
 edition = "2018"
 
 [dependencies]
-generic-array = "0.14"
+generic-array = "1.0"
 subtle = { version = "=2.4", default-features = false }
 
 [features]

@@ -12,7 +12,7 @@ keywords = ["crypto", "block-cipher", "stream-cipher", "trait"]
 categories = ["cryptography", "no-std"]
 
 [dependencies]
-generic-array = "0.14"
+generic-array = "1.0"
 crypto-common = { version = "=0.1.0-pre", path = "../crypto-common" }
 
 # optional dependencies
